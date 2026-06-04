@@ -126,7 +126,6 @@
 </head>
 <body>
 
-<!-- Loading -->
 <div id="loading-overlay">
   <div id="loading-title">J.A.R.V.I.S</div>
   <div id="loading-sub">Holographic Interface System &mdash; Sachitt Industries</div>
@@ -134,7 +133,6 @@
   <div id="loading-msg">INITIALIZING…</div>
 </div>
 
-<!-- Main AR scene -->
 <div id="container">
   <video id="webcam" autoplay muted playsinline></video>
   <canvas id="render-canvas"></canvas>
@@ -178,7 +176,6 @@
   </div>
 </div>
 
-<!-- Three.js via importmap -->
 <script type="importmap">
 {
   "imports": {
@@ -228,7 +225,15 @@ window.addEventListener('resize', () => {
 });
 
 /* ================================================================
-   TEXTURE LOADER
+   GLOBAL RUNTIME VARIABLES
+================================================================ */
+let curScale = 1.0;
+let targetScale = 1.0;
+const curPos = new THREE.Vector3(0, 0, 0);
+const targetPos = new THREE.Vector3(0, 0, 0);
+
+/* ================================================================
+   TEXTURE LOADER (WITH FAILSAFE DEPLOYMENT CORES)
 ================================================================ */
 const loader = new THREE.TextureLoader();
 loader.crossOrigin = 'anonymous';
@@ -236,7 +241,17 @@ loader.crossOrigin = 'anonymous';
 const T3 = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/textures/planets/';
 
 function loadTex(url) {
-  return new Promise(resolve => loader.load(url, resolve, undefined, () => resolve(null)));
+  return new Promise(resolve => {
+    loader.load(
+      url, 
+      (texture) => resolve(texture), 
+      undefined, 
+      () => {
+        console.warn(`Asset failed to load from cloud source: ${url}. Activating layout fallback parameters.`);
+        resolve(new THREE.DataTexture(new Uint8Array([0, 100, 255, 255]), 1, 1));
+      }
+    );
+  });
 }
 
 /* ================================================================
@@ -566,12 +581,6 @@ try {
 const voiceStatus = document.getElementById('vstatus');
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
-// Transforms & Scale trackers
-let curScale = 1.0;
-let targetScale = 1.0;
-const curPos = new THREE.Vector3(0, 0, 0);
-const targetPos = new THREE.Vector3(0, 0, 0);
-
 if (SpeechRecognition) {
   const recognition = new SpeechRecognition();
   recognition.continuous = true;
@@ -606,7 +615,7 @@ if (SpeechRecognition) {
     
     console.log('J.A.R.V.I.S voice signature match:', command);
 
-    // Natural Language Pattern Match Execution
+    // Contextually explicit routing fixes scaling errors
     if (command.includes('earth') || command.includes('planet one') || command.includes('home')) {
       switchObject(0);
     } else if (command.includes('mars') || command.includes('red planet')) {
@@ -616,9 +625,9 @@ if (SpeechRecognition) {
     } else if (command.includes('crystal') || command.includes('polygon') || command.includes('shape')) {
       switchObject(3);
     } else if (command.includes('zoom in') || command.includes('enlarge') || command.includes('bigger')) {
-      targetScale = THREE.MathUtils.clamp(curScale * 1.5, 0.2, 5.0);
+      targetScale = THREE.MathUtils.clamp(targetScale * 1.4, 0.3, 4.5);
     } else if (command.includes('zoom out') || command.includes('shrink') || command.includes('smaller')) {
-      targetScale = THREE.MathUtils.clamp(curScale * 0.6, 0.2, 5.0);
+      targetScale = THREE.MathUtils.clamp(targetScale * 0.7, 0.3, 4.5);
     } else if (command.includes('reset') || command.includes('default') || command.includes('matrix')) {
       targetScale = 1.0;
       targetPos.set(0, 0, 0);
@@ -661,7 +670,7 @@ function normToWorld(nx, ny, palmH = 0) {
 }
 
 /* ================================================================
-   SYSTEM SYSTEM ENGINE LOOPS
+   SYSTEM ENGINE LOOPS
 ================================================================ */
 const fpsEl   = document.getElementById('fps');
 const clockEl = document.getElementById('clock');
@@ -680,7 +689,6 @@ setTimeout(hideLoader, 600);
 function animate(now) {
   requestAnimationFrame(animate);
 
-  // FPS metric math tracking
   frames++;
   if (now > lastTime + 1000) {
     fpsEl.textContent = 'FPS: ' + Math.round((frames * 1000) / (now - lastTime));
@@ -688,13 +696,11 @@ function animate(now) {
     lastTime = now;
   }
 
-  // System UI clock updates
   const d = new Date();
   clockEl.textContent = d.toTimeString().split(' ')[0];
 
   const timeSec = now * 0.001;
 
-  // Active object rotations
   for (let i = 0; i < hologramGroups.length; i++) {
     const grp = hologramGroups[i];
     if (grp.visible) {
@@ -705,7 +711,6 @@ function animate(now) {
         grp.children[0].children[1].rotation.y += 0.0024;
       }
 
-      // Render uniforms values matching time variables
       const data = holoData[i];
       data.holoMat.uniforms.time.value = timeSec;
       
@@ -717,7 +722,6 @@ function animate(now) {
       data.r2.rotation.z -= 0.006;
       data.r3.rotation.y += 0.003;
 
-      // Processing individual particle states dynamically
       const positions = data.ptGeo.attributes.position.array;
       for (let j = 0; j < data.N; j++) {
         positions[j * 3 + 1] += data.speeds[j];
@@ -729,7 +733,6 @@ function animate(now) {
     }
   }
 
-  // Processing incoming tracker frame requests from MediaPipe
   if (landmarker && camOk && video.readyState >= 2 && now > lastDetectTime + 40) {
     const results = landmarker.detectForVideo(video, now);
     lastDetectTime = now;
@@ -768,7 +771,6 @@ function animate(now) {
     }
   }
 
-  // Linear Interpolation smoothing logic
   curScale = THREE.MathUtils.lerp(curScale, targetScale, 0.12);
   curPos.lerp(targetPos, 0.12);
 
