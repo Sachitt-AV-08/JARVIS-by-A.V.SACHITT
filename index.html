@@ -1,10 +1,9 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>J.A.R.V.I.S — Holographic Interface - A.V.SACHITT</title>
+  <title>J.A.R.V.I.S — Holographic Interface</title>
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -67,7 +66,6 @@
     /* ── HUD overlay ───────────────────────────────────────── */
     #hud { position: absolute; inset: 0; pointer-events: none; }
 
-    /* scan line sweeping across screen */
     #sweep {
       position: absolute; width: 100%; height: 2px;
       background: linear-gradient(90deg, transparent 0%, #00d4ff 50%, transparent 100%);
@@ -76,10 +74,7 @@
     }
     @keyframes sweep { from { top: 0; } to { top: 100%; } }
 
-    /* corner brackets */
-    .brk {
-      position: absolute; width: 64px; height: 64px;
-    }
+    .brk { position: absolute; width: 64px; height: 64px; }
     .brk::before, .brk::after {
       content: ''; position: absolute;
       background: #00d4ff;
@@ -94,7 +89,6 @@
     .brk.br { bottom: 20px; right: 20px; transform: scale(-1,-1); }
     .brk.bl { bottom: 20px; left: 20px; transform: scaleY(-1); }
 
-    /* text panels */
     .panel {
       position: absolute;
       font-size: 11px; letter-spacing: 2px;
@@ -110,16 +104,16 @@
     @keyframes blink { 0%,90%,100%{opacity:1}95%{opacity:0} }
     .blink { animation: blink 2.2s infinite; }
 
-    /* object switcher hint */
     #hint {
       position: absolute;
       bottom: 20px; left: 50%;
       transform: translateX(-50%);
       font-size: 10px; letter-spacing: 3px;
-      opacity: .35; white-space: nowrap;
+      opacity: .45; white-space: nowrap;
+      text-align: center;
+      line-height: 1.6;
     }
 
-    /* no-cam message */
     #nocam {
       display: none;
       position: absolute; inset: 0;
@@ -132,15 +126,13 @@
 </head>
 <body>
 
-<!-- Loading -->
 <div id="loading-overlay">
   <div id="loading-title">J.A.R.V.I.S</div>
-  <div id="loading-sub">Holographic Interface System &mdash; SACHITT Industries</div>
+  <div id="loading-sub">Holographic Interface System &mdash; Sachitt Industries</div>
   <div id="bar-wrap"><div id="bar"></div></div>
   <div id="loading-msg">INITIALIZING…</div>
 </div>
 
-<!-- Main AR scene -->
 <div id="container">
   <video id="webcam" autoplay muted playsinline></video>
   <canvas id="render-canvas"></canvas>
@@ -153,7 +145,8 @@
     <div class="brk br"></div><div class="brk bl"></div>
 
     <div class="panel tl">
-      <div>J.A.R.V.I.S v4.2</div>
+      <div>J.A.R.V.I.S v5.0</div>
+      <div>CREATOR: A.V.Sachitt</div>
       <div id="fps">FPS: --</div>
       <div id="hstatus">HAND: SCANNING</div>
     </div>
@@ -161,7 +154,7 @@
     <div class="panel tr">
       <div>SACHITT INDUSTRIES</div>
       <div id="clock">--:--:--</div>
-      <div class="blink">● SYSTEM ONLINE</div>
+      <div id="vstatus" style="color: #00ffaa;">VOICE: INITIALIZING</div>
     </div>
 
     <div class="panel bl">
@@ -176,11 +169,13 @@
       <div>SENSOR: ACTIVE</div>
     </div>
 
-    <div id="hint">KEYS: 1=EARTH · 2=MARS · 3=MOON · 4=CRYSTAL &nbsp;|&nbsp; GRAB WITH BOTH HANDS TO ZOOM</div>
+    <div id="hint">
+      KEYS: 1=EARTH · 2=MARS · 3=MOON · 4=CRYSTAL &nbsp;|&nbsp; GRAB WITH BOTH HANDS TO ZOOM <br>
+      <span style="color: #00ffaa;">VOICE COMMANDS: "show earth", "show mars", "show moon", "show crystal", "zoom in", "zoom out", "reset"</span>
+    </div>
   </div>
 </div>
 
-<!-- Three.js via importmap -->
 <script type="importmap">
 {
   "imports": {
@@ -230,7 +225,7 @@ window.addEventListener('resize', () => {
 });
 
 /* ================================================================
-   TEXTURE LOADER (with fallback)
+   TEXTURE LOADER
 ================================================================ */
 const loader = new THREE.TextureLoader();
 loader.crossOrigin = 'anonymous';
@@ -311,7 +306,6 @@ async function buildEarth(textures) {
   const g = new THREE.Group();
   const { earth, clouds, normal } = textures;
 
-  // Base sphere
   const mat = new THREE.MeshPhongMaterial({
     map: earth,
     normalMap: normal,
@@ -321,7 +315,6 @@ async function buildEarth(textures) {
   const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 64), mat);
   g.add(mesh);
 
-  // Clouds
   if (clouds) {
     const cm = new THREE.Mesh(
       new THREE.SphereGeometry(1.012, 64, 64),
@@ -368,21 +361,18 @@ async function buildCrystal() {
     specular: 0x00ffff,
     wireframe: false,
   });
-  // Icosahedron for crystal look
   g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(1, 2), mat));
-  // Wireframe overlay
   const wmat = new THREE.MeshBasicMaterial({ color: 0x00aaff, wireframe: true, transparent: true, opacity: .3 });
   g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(1.01, 2), wmat));
   return g;
 }
 
 /* ================================================================
-   HOLOGRAPHIC WRAPPER — adds glow rings, scan effect, atmosphere
+   HOLOGRAPHIC WRAPPER
 ================================================================ */
 function addHoloEffects(group, glowColor = new THREE.Color(0x0033aa)) {
   const addBlend = { blending: THREE.AdditiveBlending, depthWrite: false, transparent: true };
 
-  // Holographic scan overlay
   const holoMat = new THREE.ShaderMaterial({
     uniforms: { time: { value: 0 } },
     vertexShader: HOLO_VERT,
@@ -391,7 +381,6 @@ function addHoloEffects(group, glowColor = new THREE.Color(0x0033aa)) {
   });
   group.add(new THREE.Mesh(new THREE.SphereGeometry(1.006, 64, 64), holoMat));
 
-  // Atmosphere glow
   const atmMat = new THREE.ShaderMaterial({
     uniforms: { glowColor: { value: glowColor } },
     vertexShader: ATM_VERT, fragmentShader: ATM_FRAG,
@@ -399,14 +388,12 @@ function addHoloEffects(group, glowColor = new THREE.Color(0x0033aa)) {
   });
   group.add(new THREE.Mesh(new THREE.SphereGeometry(1.09, 64, 64), atmMat));
 
-  // Outer rim
   const rimMat = new THREE.ShaderMaterial({
     vertexShader: RIM_VERT, fragmentShader: RIM_FRAG,
     ...addBlend, side: THREE.BackSide,
   });
   group.add(new THREE.Mesh(new THREE.SphereGeometry(1.18, 64, 64), rimMat));
 
-  // Orbital rings
   function ring(ir, or_, col, op, rx, rz) {
     const m = new THREE.Mesh(
       new THREE.RingGeometry(ir, or_, 128),
@@ -421,7 +408,6 @@ function addHoloEffects(group, glowColor = new THREE.Color(0x0033aa)) {
   const r3 = ring(1.38, 1.385, 0x003388, .40, Math.PI / 2.8, Math.PI / 7);
   group.add(r1, r2, r3);
 
-  // Scan ring (latitudinal sweep)
   const scanRingMat = new THREE.MeshBasicMaterial({
     color: 0x00ffff, ...addBlend, opacity: .85, side: THREE.DoubleSide
   });
@@ -429,7 +415,6 @@ function addHoloEffects(group, glowColor = new THREE.Color(0x0033aa)) {
   scanRing.rotation.x = Math.PI / 2;
   group.add(scanRing);
 
-  // Base pedestal glow
   const baseMat = new THREE.MeshBasicMaterial({
     color: 0x0044ff, ...addBlend, opacity: .12, side: THREE.DoubleSide
   });
@@ -438,7 +423,6 @@ function addHoloEffects(group, glowColor = new THREE.Color(0x0033aa)) {
   base.position.y = -1.25;
   group.add(base);
 
-  // Particle cloud
   const N = 250;
   const pos = new Float32Array(N * 3);
   const speeds = new Float32Array(N);
@@ -475,7 +459,7 @@ const marsTex   = await loadTex(T3 + 'mars_1k_color.jpg');
 progress(62, 'LOADING MOON…');
 const moonTex   = await loadTex(T3 + 'moon_1024.jpg');
 
-progress(72, 'CONSTRUCTING OBJECTS…');
+progress(72, 'CONSTRUCTING ENGINE OBJECTS…');
 
 const earthBase   = await buildEarth({ earth: earthTex, clouds: cloudsTex, normal: normalTex });
 const marsBase    = await buildMars({ mars: marsTex });
@@ -489,7 +473,6 @@ const OBJECTS = [
   { name: 'CRYSTAL', key: '4', group: crystalBase, glow: new THREE.Color(0x003388), rotSpd: .004  },
 ];
 
-// Wrap each in a hologram group
 const holoData = [];
 const hologramGroups = [];
 
@@ -520,7 +503,7 @@ document.addEventListener('keydown', e => {
 /* ================================================================
    LIGHTING
 ================================================================ */
-progress(80, 'SETTING UP LIGHTING…');
+progress(80, 'ENGAGING AMBIENT MATRIX…');
 const sun = new THREE.DirectionalLight(0xffffff, 1.6);
 sun.position.set(5, 3, 5);
 scene.add(sun);
@@ -532,7 +515,7 @@ scene.add(blueLight);
 /* ================================================================
    WEBCAM
 ================================================================ */
-progress(88, 'STARTING WEBCAM…');
+progress(88, 'STARTING OPTICAL SENSOR…');
 const video = document.getElementById('webcam');
 let camOk = false;
 
@@ -551,7 +534,7 @@ try {
 /* ================================================================
    MEDIAPIPE HAND TRACKING
 ================================================================ */
-progress(93, 'LOADING HAND TRACKING…');
+progress(93, 'LOADING COGNITIVE SPATIAL ENGINE…');
 let landmarker = null;
 
 try {
@@ -571,13 +554,65 @@ try {
     numHands: 2,
   });
 } catch (e) {
-  console.warn('Hand tracking unavailable:', e);
+  console.warn('Spatial tracking unavailable:', e);
+}
+
+/* ================================================================
+   INTEGRATED VOICE CONTROL (SPEECH RECOGNITION)
+================================================================ */
+const voiceStatus = document.getElementById('vstatus');
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+if (SpeechRecognition) {
+  const recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = false;
+  recognition.lang = 'en-US';
+
+  recognition.onstart = () => {
+    voiceStatus.textContent = 'VOICE: ACTIVE / LISTENING';
+  };
+
+  recognition.onerror = () => {
+    voiceStatus.textContent = 'VOICE: ERROR / RESTARTING';
+  };
+
+  recognition.onend = () => {
+    recognition.start(); // Keep engine constantly alive
+  };
+
+  recognition.onresult = (event) => {
+    const resultIdx = event.resultIndex;
+    const command = event.results[resultIdx][0].transcript.toLowerCase().trim();
+    
+    console.log('J.A.R.V.I.S parsed voice signature: ', command);
+
+    if (command.includes('earth') || command.includes('planet one')) {
+      switchObject(0);
+    } else if (command.includes('mars') || command.includes('red planet')) {
+      switchObject(1);
+    } else if (command.includes('moon') || command.includes('lunar')) {
+      switchObject(2);
+    } else if (command.includes('crystal') || command.includes('polygon')) {
+      switchObject(3);
+    } else if (command.includes('zoom in') || command.includes('enlarge')) {
+      targetScale = THREE.MathUtils.clamp(curScale * 1.5, 0.2, 5.0);
+    } else if (command.includes('zoom out') || command.includes('shrink')) {
+      targetScale = THREE.MathUtils.clamp(curScale * 0.6, 0.2, 5.0);
+    } else if (command.includes('reset') || command.includes('default')) {
+      targetScale = 1.0;
+      targetPos.set(0, 0, 0);
+    }
+  };
+
+  recognition.start();
+} else {
+  voiceStatus.textContent = 'VOICE: NOT SUPPORTED BY BROWSER';
 }
 
 /* ================================================================
    HAND COORDINATE HELPERS
 ================================================================ */
-// Returns { x, y, palmH } in MediaPipe normalised space (0-1)
 function palmNorm(lm) {
   const pts = [0, 5, 9, 13, 17];
   let sx = 0, sy = 0;
@@ -587,9 +622,8 @@ function palmNorm(lm) {
   return { x: sx, y: sy, palmH };
 }
 
-// Converts a normalised (0-1) landmark to Three.js world XY at z=0
 function normToWorld(nx, ny, palmH = 0) {
-  const ndcX =  (1 - nx) * 2 - 1;   // mirror X for CSS scaleX(-1)
+  const ndcX =  (1 - nx) * 2 - 1;   
   const ndcY = -(ny * 2 - 1);
   const fov   = camera.fov * Math.PI / 180;
   const half  = Math.tan(fov / 2);
@@ -601,7 +635,6 @@ function normToWorld(nx, ny, palmH = 0) {
   return new THREE.Vector3(wx, wy + lift, 0);
 }
 
-// Converts a single landmark {x,y} to world XY (no lift, used for fingertip lines)
 function lmToWorld(lx, ly) {
   const ndcX =  (1 - lx) * 2 - 1;
   const ndcY = -(ly * 2 - 1);
@@ -627,16 +660,15 @@ let fpsCnt = 0, fpsT = performance.now();
 /* ================================================================
    ANIMATION LOOP
 ================================================================ */
-progress(100, 'SYSTEMS ONLINE');
+progress(100, 'ALL SYSTEMS OPERATIONAL');
 await new Promise(r => setTimeout(r, 700));
 hideLoader();
 
 const clock = new THREE.Clock();
 let lastVidTime = -1;
 let handGone    = 0;
-let handSeen    = false;   // true only in 2-hand grab mode
+let handSeen    = false;   
 
-// Zoom / grab state
 let grabbing      = false;
 let grabDist      = null;
 let grabStartScale = 1.0;
@@ -647,15 +679,12 @@ const targetPos = new THREE.Vector3();
 const curPos    = new THREE.Vector3();
 
 /* ── Fingertip beam lines ───────────────────────────────────────── */
-// 4 fingertips per hand (index=8, middle=12, ring=16, pinky=20)
 const FINGER_TIPS = [8, 12, 16, 20];
 const LINE_COLOR  = new THREE.Color(0x00ccff);
 
-// Pre-create line segments (2 hands × 4 fingers = 8 lines)
 const beamLines = [];
 for (let i = 0; i < 8; i++) {
   const geo = new THREE.BufferGeometry();
-  // 2 vertices: fingertip → globe surface point
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
   const mat = new THREE.LineBasicMaterial({
     color: LINE_COLOR,
@@ -669,13 +698,12 @@ for (let i = 0; i < 8; i++) {
   beamLines.push(line);
 }
 
-// Random fixed angles on the globe surface for each beam target
 const beamTargetAngles = Array.from({ length: 8 }, () => ({
   phi: Math.random() * Math.PI * 2,
   theta: Math.random() * Math.PI,
 }));
 
-let beamOpacity = 0; // smoothly fade in/out
+let beamOpacity = 0; 
 
 function animate() {
   requestAnimationFrame(animate);
@@ -688,19 +716,16 @@ function animate() {
     const hands = res.landmarks ?? [];
 
     if (hands.length >= 2) {
-      /* ── TWO HANDS: grab + zoom ── */
       handSeen = true;
       handGone = 0;
 
       const p0 = palmNorm(hands[0]);
       const p1 = palmNorm(hands[1]);
 
-      // Hologram sits at midpoint between the two palms
       const mx = (p0.x + p1.x) / 2;
       const my = (p0.y + p1.y) / 2;
       targetPos.copy(normToWorld(mx, my, (p0.palmH + p1.palmH) / 2));
 
-      // Hand spread distance drives the scale
       const dist = Math.sqrt((p0.x - p1.x) ** 2 + (p0.y - p1.y) ** 2);
       if (!grabbing) {
         grabbing       = true;
@@ -713,10 +738,9 @@ function animate() {
       hudTrack.textContent = 'ZOOM: ' + targetScale.toFixed(2) + '×';
       hudPalm.textContent  = 'SPREAD: ' + ((dist / grabDist) * 100).toFixed(0) + '%';
 
-      // ── Fingertip beam lines ──
       beamOpacity = Math.min(beamOpacity + 0.08, 1.0);
-      const globePos  = curPos;               // hologram world position
-      const globeR    = curScale;             // radius in world units
+      const globePos  = curPos;               
+      const globeR    = curScale;             
 
       [hands[0], hands[1]].forEach((lm, hi) => {
         FINGER_TIPS.forEach((tipIdx, fi) => {
@@ -724,7 +748,6 @@ function animate() {
           const tip     = lm[tipIdx];
           const tipW    = lmToWorld(tip.x, tip.y);
 
-          // Target: fixed point on the globe surface (world space)
           const ang  = beamTargetAngles[lineIdx];
           const surf = new THREE.Vector3(
             globePos.x + globeR * Math.sin(ang.theta) * Math.cos(ang.phi),
@@ -741,10 +764,8 @@ function animate() {
       });
 
     } else {
-      /* ── LESS THAN 2 HANDS: release grab ── */
       if (grabbing) { grabbing = false; grabDist = null; }
 
-      // Fade out beam lines
       beamOpacity = Math.max(beamOpacity - 0.06, 0);
       beamLines.forEach(l => { l.material.opacity = beamOpacity * 0.75; });
 
@@ -769,13 +790,11 @@ function animate() {
   if (handSeen) {
     curPos.lerp(targetPos, 0.09);
   } else {
-    // Gentle float in centre
     targetPos.set(0, Math.sin(t * .7) * .08, 0);
     curPos.lerp(targetPos, 0.025);
   }
   hg.position.copy(curPos);
 
-  // Smooth scale
   curScale += (targetScale - curScale) * 0.1;
   hg.scale.setScalar(curScale);
 
@@ -790,25 +809,19 @@ function animate() {
   /* ── Holographic FX ── */
   const fx = holoData[activeIdx];
 
-  // Scan line sweep
   const sy = Math.sin(t * 1.3) * .93;
   fx.scanRing.position.y = sy;
   fx.scanRingMat.opacity = .4 + Math.abs(Math.sin(t * 1.3)) * .55;
 
-  // Orbital rings independent spin
   fx.r1.rotation.y  = t * .55;
   fx.r2.rotation.y  = t * .32;
   fx.r2.rotation.z  = t * .18;
   fx.r3.rotation.y  = -t * .42;
   fx.r3.rotation.x  = Math.PI / 2.8 + Math.sin(t * .25) * .08;
 
-  // Base glow pulse
   fx.baseMat.opacity = .08 + Math.sin(t * 2.1) * .04;
-
-  // Holographic shader time
   fx.holoMat.uniforms.time.value = t;
 
-  // Particle orbit
   const pa = fx.ptGeo.attributes.position.array;
   for (let i = 0; i < fx.N; i++) {
     const sp  = fx.speeds[i];
