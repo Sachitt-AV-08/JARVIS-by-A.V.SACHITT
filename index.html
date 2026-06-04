@@ -126,6 +126,7 @@
 </head>
 <body>
 
+<!-- Loading -->
 <div id="loading-overlay">
   <div id="loading-title">J.A.R.V.I.S</div>
   <div id="loading-sub">Holographic Interface System &mdash; Sachitt Industries</div>
@@ -133,6 +134,7 @@
   <div id="loading-msg">INITIALIZING…</div>
 </div>
 
+<!-- Main AR scene -->
 <div id="container">
   <video id="webcam" autoplay muted playsinline></video>
   <canvas id="render-canvas"></canvas>
@@ -171,11 +173,12 @@
 
     <div id="hint">
       KEYS: 1=EARTH · 2=MARS · 3=MOON · 4=CRYSTAL &nbsp;|&nbsp; GRAB WITH BOTH HANDS TO ZOOM <br>
-      <span style="color: #00ffaa;">VOICE COMMANDS: "show earth", "show mars", "show moon", "show crystal", "zoom in", "zoom out", "reset"</span>
+      <span style="color: #00ffaa;">VOICE COMMANDS: "show earth", "show mars", "show moon", "show crystal", "zoom in", "zoom out", "reset matrix"</span>
     </div>
   </div>
 </div>
 
+<!-- Three.js via importmap -->
 <script type="importmap">
 {
   "imports": {
@@ -208,20 +211,20 @@ function hideLoader() {
 ================================================================ */
 const canvas   = document.getElementById('render-canvas');
 const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
-renderer.setPixelRatio(devicePixelRatio);
-renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setClearColor(0x000000, 0);
 renderer.shadowMap.enabled = false;
 
 const scene  = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 200);
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 200);
 camera.position.set(0, 0, 6);
 camera.lookAt(0, 0, 0);
 
 window.addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight;
+  camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
+  renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
 /* ================================================================
@@ -558,10 +561,16 @@ try {
 }
 
 /* ================================================================
-   INTEGRATED VOICE CONTROL (SPEECH RECOGNITION)
+   VOICE TRANSLATION TRACKING MATRIX
 ================================================================ */
 const voiceStatus = document.getElementById('vstatus');
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+// Transforms & Scale trackers
+let curScale = 1.0;
+let targetScale = 1.0;
+const curPos = new THREE.Vector3(0, 0, 0);
+const targetPos = new THREE.Vector3(0, 0, 0);
 
 if (SpeechRecognition) {
   const recognition = new SpeechRecognition();
@@ -569,45 +578,61 @@ if (SpeechRecognition) {
   recognition.interimResults = false;
   recognition.lang = 'en-US';
 
+  let intentionalStop = false;
+
   recognition.onstart = () => {
     voiceStatus.textContent = 'VOICE: ACTIVE / LISTENING';
+    voiceStatus.style.color = '#00ffaa';
   };
 
-  recognition.onerror = () => {
-    voiceStatus.textContent = 'VOICE: ERROR / RESTARTING';
+  recognition.onerror = (event) => {
+    if (event.error === 'no-speech') return; 
+    console.warn(`J.A.R.V.I.S Voice Engine Warning (${event.error})`);
+    voiceStatus.textContent = `VOICE: IDLE (${event.error.toUpperCase()})`;
+    voiceStatus.style.color = '#ffaa00';
   };
 
   recognition.onend = () => {
-    recognition.start(); // Keep engine constantly alive
+    if (!intentionalStop) {
+      setTimeout(() => {
+        try { recognition.start(); } catch(e) {}
+      }, 400); 
+    }
   };
 
   recognition.onresult = (event) => {
     const resultIdx = event.resultIndex;
     const command = event.results[resultIdx][0].transcript.toLowerCase().trim();
     
-    console.log('J.A.R.V.I.S parsed voice signature: ', command);
+    console.log('J.A.R.V.I.S voice signature match:', command);
 
-    if (command.includes('earth') || command.includes('planet one')) {
+    // Natural Language Pattern Match Execution
+    if (command.includes('earth') || command.includes('planet one') || command.includes('home')) {
       switchObject(0);
     } else if (command.includes('mars') || command.includes('red planet')) {
       switchObject(1);
     } else if (command.includes('moon') || command.includes('lunar')) {
       switchObject(2);
-    } else if (command.includes('crystal') || command.includes('polygon')) {
+    } else if (command.includes('crystal') || command.includes('polygon') || command.includes('shape')) {
       switchObject(3);
-    } else if (command.includes('zoom in') || command.includes('enlarge')) {
+    } else if (command.includes('zoom in') || command.includes('enlarge') || command.includes('bigger')) {
       targetScale = THREE.MathUtils.clamp(curScale * 1.5, 0.2, 5.0);
-    } else if (command.includes('zoom out') || command.includes('shrink')) {
+    } else if (command.includes('zoom out') || command.includes('shrink') || command.includes('smaller')) {
       targetScale = THREE.MathUtils.clamp(curScale * 0.6, 0.2, 5.0);
-    } else if (command.includes('reset') || command.includes('default')) {
+    } else if (command.includes('reset') || command.includes('default') || command.includes('matrix')) {
       targetScale = 1.0;
       targetPos.set(0, 0, 0);
     }
   };
 
-  recognition.start();
+  try {
+    recognition.start();
+  } catch (err) {
+    console.error("Speech initialization failure:", err);
+  }
 } else {
-  voiceStatus.textContent = 'VOICE: NOT SUPPORTED BY BROWSER';
+  voiceStatus.textContent = 'VOICE: UNSUPPORTED BY BROWSER';
+  voiceStatus.style.color = '#ff4455';
 }
 
 /* ================================================================
@@ -627,7 +652,7 @@ function normToWorld(nx, ny, palmH = 0) {
   const ndcY = -(ny * 2 - 1);
   const fov   = camera.fov * Math.PI / 180;
   const half  = Math.tan(fov / 2);
-  const asp   = innerWidth / innerHeight;
+  const asp   = window.innerWidth / window.innerHeight;
   const depth = camera.position.z;
   const wx = ndcX * half * asp * depth;
   const wy = ndcY * half * depth;
@@ -635,219 +660,130 @@ function normToWorld(nx, ny, palmH = 0) {
   return new THREE.Vector3(wx, wy + lift, 0);
 }
 
-function lmToWorld(lx, ly) {
-  const ndcX =  (1 - lx) * 2 - 1;
-  const ndcY = -(ly * 2 - 1);
-  const fov   = camera.fov * Math.PI / 180;
-  const half  = Math.tan(fov / 2);
-  const asp   = innerWidth / innerHeight;
-  const depth = camera.position.z;
-  return new THREE.Vector3(ndcX * half * asp * depth, ndcY * half * depth, 0);
-}
-
 /* ================================================================
-   HUD REFS
+   SYSTEM SYSTEM ENGINE LOOPS
 ================================================================ */
-const hudFps    = document.getElementById('fps');
-const hudHand   = document.getElementById('hstatus');
-const hudPalm   = document.getElementById('palmxy');
-const hudTrack  = document.getElementById('trackst');
-const hudScale  = document.getElementById('objscale');
-const hudClock  = document.getElementById('clock');
+const fpsEl   = document.getElementById('fps');
+const clockEl = document.getElementById('clock');
+const hStatEl = document.getElementById('hstatus');
+const trackEl = document.getElementById('trackst');
+const palmXyEl = document.getElementById('palmxy');
+const scaleEl = document.getElementById('objscale');
 
-let fpsCnt = 0, fpsT = performance.now();
+let lastTime = performance.now();
+let frames = 0;
+let lastDetectTime = 0;
 
-/* ================================================================
-   ANIMATION LOOP
-================================================================ */
-progress(100, 'ALL SYSTEMS OPERATIONAL');
-await new Promise(r => setTimeout(r, 700));
-hideLoader();
+progress(100, 'SYSTEM ONLINE.');
+setTimeout(hideLoader, 600);
 
-const clock = new THREE.Clock();
-let lastVidTime = -1;
-let handGone    = 0;
-let handSeen    = false;   
-
-let grabbing      = false;
-let grabDist      = null;
-let grabStartScale = 1.0;
-let curScale      = 1.0;
-let targetScale   = 1.0;
-
-const targetPos = new THREE.Vector3();
-const curPos    = new THREE.Vector3();
-
-/* ── Fingertip beam lines ───────────────────────────────────────── */
-const FINGER_TIPS = [8, 12, 16, 20];
-const LINE_COLOR  = new THREE.Color(0x00ccff);
-
-const beamLines = [];
-for (let i = 0; i < 8; i++) {
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
-  const mat = new THREE.LineBasicMaterial({
-    color: LINE_COLOR,
-    transparent: true,
-    opacity: 0,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  const line = new THREE.Line(geo, mat);
-  scene.add(line);
-  beamLines.push(line);
-}
-
-const beamTargetAngles = Array.from({ length: 8 }, () => ({
-  phi: Math.random() * Math.PI * 2,
-  theta: Math.random() * Math.PI,
-}));
-
-let beamOpacity = 0; 
-
-function animate() {
+function animate(now) {
   requestAnimationFrame(animate);
-  const t = clock.getElapsedTime();
 
-  /* ── Hand detection ── */
-  if (landmarker && video.readyState >= 2 && video.currentTime !== lastVidTime) {
-    lastVidTime = video.currentTime;
-    const res   = landmarker.detectForVideo(video, performance.now());
-    const hands = res.landmarks ?? [];
+  // FPS metric math tracking
+  frames++;
+  if (now > lastTime + 1000) {
+    fpsEl.textContent = 'FPS: ' + Math.round((frames * 1000) / (now - lastTime));
+    frames = 0;
+    lastTime = now;
+  }
 
-    if (hands.length >= 2) {
-      handSeen = true;
-      handGone = 0;
+  // System UI clock updates
+  const d = new Date();
+  clockEl.textContent = d.toTimeString().split(' ')[0];
 
-      const p0 = palmNorm(hands[0]);
-      const p1 = palmNorm(hands[1]);
+  const timeSec = now * 0.001;
 
-      const mx = (p0.x + p1.x) / 2;
-      const my = (p0.y + p1.y) / 2;
-      targetPos.copy(normToWorld(mx, my, (p0.palmH + p1.palmH) / 2));
-
-      const dist = Math.sqrt((p0.x - p1.x) ** 2 + (p0.y - p1.y) ** 2);
-      if (!grabbing) {
-        grabbing       = true;
-        grabDist       = dist;
-        grabStartScale = curScale;
+  // Active object rotations
+  for (let i = 0; i < hologramGroups.length; i++) {
+    const grp = hologramGroups[i];
+    if (grp.visible) {
+      const coreMesh = grp.children[0].children[0];
+      coreMesh.rotation.y += OBJECTS[i].rotSpd;
+      
+      if (i === 0 && grp.children[0].children[1]?.userData.cloud) {
+        grp.children[0].children[1].rotation.y += 0.0024;
       }
-      targetScale = THREE.MathUtils.clamp(grabStartScale * (dist / grabDist), 0.2, 5.0);
 
-      hudHand.textContent  = 'HANDS: GRABBING';
-      hudTrack.textContent = 'ZOOM: ' + targetScale.toFixed(2) + '×';
-      hudPalm.textContent  = 'SPREAD: ' + ((dist / grabDist) * 100).toFixed(0) + '%';
+      // Render uniforms values matching time variables
+      const data = holoData[i];
+      data.holoMat.uniforms.time.value = timeSec;
+      
+      const s = 1.0 + Math.sin(timeSec * 4.0) * 0.04;
+      data.scanRing.scale.set(s, s, s);
+      data.scanRing.position.y = Math.sin(timeSec * 2.2) * 1.15;
 
-      beamOpacity = Math.min(beamOpacity + 0.08, 1.0);
-      const globePos  = curPos;               
-      const globeR    = curScale;             
+      data.r1.rotation.z += 0.004;
+      data.r2.rotation.z -= 0.006;
+      data.r3.rotation.y += 0.003;
 
-      [hands[0], hands[1]].forEach((lm, hi) => {
-        FINGER_TIPS.forEach((tipIdx, fi) => {
-          const lineIdx = hi * 4 + fi;
-          const tip     = lm[tipIdx];
-          const tipW    = lmToWorld(tip.x, tip.y);
-
-          const ang  = beamTargetAngles[lineIdx];
-          const surf = new THREE.Vector3(
-            globePos.x + globeR * Math.sin(ang.theta) * Math.cos(ang.phi),
-            globePos.y + globeR * Math.cos(ang.theta),
-            globePos.z + globeR * Math.sin(ang.theta) * Math.sin(ang.phi)
-          );
-
-          const pa = beamLines[lineIdx].geometry.attributes.position.array;
-          pa[0] = tipW.x;  pa[1] = tipW.y;  pa[2] = tipW.z;
-          pa[3] = surf.x;  pa[4] = surf.y;  pa[5] = surf.z;
-          beamLines[lineIdx].geometry.attributes.position.needsUpdate = true;
-          beamLines[lineIdx].material.opacity = beamOpacity * 0.75;
-        });
-      });
-
-    } else {
-      if (grabbing) { grabbing = false; grabDist = null; }
-
-      beamOpacity = Math.max(beamOpacity - 0.06, 0);
-      beamLines.forEach(l => { l.material.opacity = beamOpacity * 0.75; });
-
-      handGone++;
-      if (handGone > 20) handSeen = false;
-
-      if (hands.length === 1) {
-        hudHand.textContent  = 'HAND: 1 DETECTED';
-        hudTrack.textContent = 'SHOW BOTH HANDS';
-        hudPalm.textContent  = 'GRAB: READY';
-      } else if (handGone > 20) {
-        hudHand.textContent  = 'HAND: SCANNING';
-        hudTrack.textContent = 'TRACKING: IDLE';
-        hudPalm.textContent  = 'PALM: ---';
+      // Processing individual particle states dynamically
+      const positions = data.ptGeo.attributes.position.array;
+      for (let j = 0; j < data.N; j++) {
+        positions[j * 3 + 1] += data.speeds[j];
+        if (positions[j * 3 + 1] > 2.2) {
+          positions[j * 3 + 1] = -1.2;
+        }
       }
+      data.ptGeo.attributes.position.needsUpdate = true;
     }
   }
 
-  /* ── Smooth hologram position ── */
-  const hg = hologramGroups[activeIdx];
+  // Processing incoming tracker frame requests from MediaPipe
+  if (landmarker && camOk && video.readyState >= 2 && now > lastDetectTime + 40) {
+    const results = landmarker.detectForVideo(video, now);
+    lastDetectTime = now;
 
-  if (handSeen) {
-    curPos.lerp(targetPos, 0.09);
-  } else {
-    targetPos.set(0, Math.sin(t * .7) * .08, 0);
-    curPos.lerp(targetPos, 0.025);
+    if (results && results.landmarks && results.landmarks.length > 0) {
+      hStatEl.textContent = 'HAND: LOCKED';
+      hStatEl.style.color = '#00ffaa';
+
+      if (results.landmarks.length === 1) {
+        trackEl.textContent = 'TRACKING: TRANSLATE';
+        const p = palmNorm(results.landmarks[0]);
+        palmXyEl.textContent = `PALM: X:${Math.round(p.x*100)} Y:${Math.round(p.y*100)}`;
+        
+        const wPos = normToWorld(p.x, p.y, p.palmH);
+        targetPos.copy(wPos);
+      } 
+      else if (results.landmarks.length >= 2) {
+        trackEl.textContent = 'TRACKING: PINCH ZOOM';
+        const p1 = palmNorm(results.landmarks[0]);
+        const p2 = palmNorm(results.landmarks[1]);
+        
+        const dist = Math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2);
+        targetScale = THREE.MathUtils.clamp(dist * 4.5, 0.3, 4.0);
+        
+        const mx = (p1.x + p2.x) * 0.5;
+        const my = (p1.y + p2.y) * 0.5;
+        const mh = (p1.palmH + p2.palmH) * 0.5;
+        targetPos.copy(normToWorld(mx, my, mh));
+        palmXyEl.textContent = 'PALM: DUAL NODE';
+      }
+    } else {
+      hStatEl.textContent = 'HAND: SCANNING';
+      hStatEl.style.color = '#00d4ff';
+      trackEl.textContent = 'TRACKING: IDLE';
+      palmXyEl.textContent = 'PALM: ---';
+    }
   }
-  hg.position.copy(curPos);
 
-  curScale += (targetScale - curScale) * 0.1;
-  hg.scale.setScalar(curScale);
+  // Linear Interpolation smoothing logic
+  curScale = THREE.MathUtils.lerp(curScale, targetScale, 0.12);
+  curPos.lerp(targetPos, 0.12);
 
-  /* ── Per-object rotation ── */
-  const obj = OBJECTS[activeIdx];
-  const baseMesh = obj.group.children[0];
-  if (baseMesh) baseMesh.rotation.y += obj.rotSpd;
-  obj.group.children.forEach(c => {
-    if (c.userData.cloud) c.rotation.y += obj.rotSpd * 1.25;
+  scaleEl.textContent = `SCALE: ${curScale.toFixed(2)}×`;
+
+  hologramGroups.forEach(grp => {
+    grp.scale.set(curScale, curScale, curScale);
+    grp.position.copy(curPos);
   });
-
-  /* ── Holographic FX ── */
-  const fx = holoData[activeIdx];
-
-  const sy = Math.sin(t * 1.3) * .93;
-  fx.scanRing.position.y = sy;
-  fx.scanRingMat.opacity = .4 + Math.abs(Math.sin(t * 1.3)) * .55;
-
-  fx.r1.rotation.y  = t * .55;
-  fx.r2.rotation.y  = t * .32;
-  fx.r2.rotation.z  = t * .18;
-  fx.r3.rotation.y  = -t * .42;
-  fx.r3.rotation.x  = Math.PI / 2.8 + Math.sin(t * .25) * .08;
-
-  fx.baseMat.opacity = .08 + Math.sin(t * 2.1) * .04;
-  fx.holoMat.uniforms.time.value = t;
-
-  const pa = fx.ptGeo.attributes.position.array;
-  for (let i = 0; i < fx.N; i++) {
-    const sp  = fx.speeds[i];
-    const phi = t * sp * 55 + i * .11;
-    const th  = t * sp * 33 + i * .31;
-    const r   = 1.55 + Math.sin(t * sp * 90 + i) * .1;
-    pa[i*3]   = r * Math.sin(th) * Math.cos(phi);
-    pa[i*3+1] = r * Math.cos(th);
-    pa[i*3+2] = r * Math.sin(th) * Math.sin(phi);
-  }
-  fx.ptGeo.attributes.position.needsUpdate = true;
-
-  /* ── HUD updates ── */
-  fpsCnt++;
-  const now = performance.now();
-  if (now - fpsT > 500) {
-    hudFps.textContent = 'FPS: ' + Math.round(fpsCnt * 1000 / (now - fpsT));
-    fpsCnt = 0; fpsT = now;
-  }
-  hudScale.textContent  = 'SCALE: ' + curScale.toFixed(2) + '×';
-  hudClock.textContent  = new Date().toLocaleTimeString();
 
   renderer.render(scene, camera);
 }
 
-animate();
+requestAnimationFrame(animate);
+
 </script>
 </body>
 </html>
