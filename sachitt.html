@@ -1,0 +1,840 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>J.A.R.V.I.S — Holographic Interface</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #000;
+      overflow: hidden;
+      font-family: 'Courier New', Courier, monospace;
+      color: #00d4ff;
+      user-select: none;
+    }
+
+    #container { position: relative; width: 100vw; height: 100vh; }
+
+    #webcam {
+      position: absolute; width: 100%; height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+    }
+
+    #render-canvas {
+      position: absolute; width: 100%; height: 100%;
+      pointer-events: none;
+    }
+
+    /* ── Loading screen ────────────────────────────────────── */
+    #loading-overlay {
+      position: absolute; inset: 0;
+      background: #000;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      z-index: 200;
+      transition: opacity 1.2s ease;
+    }
+    #loading-title {
+      font-size: clamp(32px, 6vw, 56px);
+      letter-spacing: 14px;
+      text-shadow: 0 0 40px #00d4ff, 0 0 80px #0044ff;
+      margin-bottom: 12px;
+    }
+    #loading-sub {
+      font-size: 13px; letter-spacing: 4px;
+      opacity: .55; margin-bottom: 48px;
+    }
+    #bar-wrap {
+      width: 320px; height: 2px;
+      background: rgba(0,212,255,.15);
+      overflow: hidden;
+    }
+    #bar {
+      height: 100%; width: 0%;
+      background: #00d4ff;
+      box-shadow: 0 0 12px #00d4ff;
+      transition: width .35s ease;
+    }
+    #loading-msg {
+      margin-top: 14px; font-size: 11px;
+      letter-spacing: 2px; opacity: .5;
+    }
+
+    /* ── HUD overlay ───────────────────────────────────────── */
+    #hud { position: absolute; inset: 0; pointer-events: none; }
+
+    /* scan line sweeping across screen */
+    #sweep {
+      position: absolute; width: 100%; height: 2px;
+      background: linear-gradient(90deg, transparent 0%, #00d4ff 50%, transparent 100%);
+      opacity: .25;
+      animation: sweep 5s linear infinite;
+    }
+    @keyframes sweep { from { top: 0; } to { top: 100%; } }
+
+    /* corner brackets */
+    .brk {
+      position: absolute; width: 64px; height: 64px;
+    }
+    .brk::before, .brk::after {
+      content: ''; position: absolute;
+      background: #00d4ff;
+      box-shadow: 0 0 6px #00d4ff;
+    }
+    .brk::before { width: 100%; height: 2px; }
+    .brk::after  { width: 2px; height: 100%; }
+    .brk.tl { top: 20px; left: 20px; }
+    .brk.tl::before { top: 0; left: 0; }
+    .brk.tl::after  { top: 0; left: 0; }
+    .brk.tr { top: 20px; right: 20px; transform: scaleX(-1); }
+    .brk.br { bottom: 20px; right: 20px; transform: scale(-1,-1); }
+    .brk.bl { bottom: 20px; left: 20px; transform: scaleY(-1); }
+
+    /* text panels */
+    .panel {
+      position: absolute;
+      font-size: 11px; letter-spacing: 2px;
+      line-height: 1.9; text-transform: uppercase;
+      text-shadow: 0 0 8px #00d4ff;
+      opacity: .85;
+    }
+    .panel.tl { top: 30px; left: 98px; }
+    .panel.tr { top: 30px; right: 98px; text-align: right; }
+    .panel.bl { bottom: 30px; left: 98px; }
+    .panel.br { bottom: 30px; right: 98px; text-align: right; }
+
+    @keyframes blink { 0%,90%,100%{opacity:1}95%{opacity:0} }
+    .blink { animation: blink 2.2s infinite; }
+
+    /* object switcher hint */
+    #hint {
+      position: absolute;
+      bottom: 20px; left: 50%;
+      transform: translateX(-50%);
+      font-size: 10px; letter-spacing: 3px;
+      opacity: .35; white-space: nowrap;
+    }
+
+    /* no-cam message */
+    #nocam {
+      display: none;
+      position: absolute; inset: 0;
+      align-items: center; justify-content: center;
+      font-size: 14px; letter-spacing: 3px;
+      color: #ff4455; text-shadow: 0 0 12px #ff4455;
+      z-index: 50;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Loading -->
+<div id="loading-overlay">
+  <div id="loading-title">J.A.R.V.I.S</div>
+  <div id="loading-sub">Holographic Interface System &mdash; Stark Industries</div>
+  <div id="bar-wrap"><div id="bar"></div></div>
+  <div id="loading-msg">INITIALIZING…</div>
+</div>
+
+<!-- Main AR scene -->
+<div id="container">
+  <video id="webcam" autoplay muted playsinline></video>
+  <canvas id="render-canvas"></canvas>
+
+  <div id="nocam">⚠ CAMERA ACCESS DENIED — ENABLE WEBCAM</div>
+
+  <div id="hud">
+    <div id="sweep"></div>
+    <div class="brk tl"></div><div class="brk tr"></div>
+    <div class="brk br"></div><div class="brk bl"></div>
+
+    <div class="panel tl">
+      <div>J.A.R.V.I.S v4.2</div>
+      <div id="fps">FPS: --</div>
+      <div id="hstatus">HAND: SCANNING</div>
+    </div>
+
+    <div class="panel tr">
+      <div>STARK INDUSTRIES</div>
+      <div id="clock">--:--:--</div>
+      <div class="blink">● SYSTEM ONLINE</div>
+    </div>
+
+    <div class="panel bl">
+      <div id="objname">OBJECT: EARTH</div>
+      <div>MODE: AR HOLOGRAM</div>
+      <div id="objscale">SCALE: 1.0×</div>
+    </div>
+
+    <div class="panel br">
+      <div id="palmxy">PALM: ---</div>
+      <div id="trackst">TRACKING: IDLE</div>
+      <div>SENSOR: ACTIVE</div>
+    </div>
+
+    <div id="hint">KEYS: 1=EARTH · 2=MARS · 3=MOON · 4=CRYSTAL &nbsp;|&nbsp; GRAB WITH BOTH HANDS TO ZOOM</div>
+  </div>
+</div>
+
+<!-- Three.js via importmap -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.162.0/build/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* ================================================================
+   LOADING HELPERS
+================================================================ */
+const overlay  = document.getElementById('loading-overlay');
+const bar      = document.getElementById('bar');
+const loadMsg  = document.getElementById('loading-msg');
+
+function progress(pct, msg) {
+  bar.style.width = pct + '%';
+  loadMsg.textContent = msg;
+}
+function hideLoader() {
+  overlay.style.opacity = '0';
+  setTimeout(() => overlay.style.display = 'none', 1200);
+}
+
+/* ================================================================
+   THREE.JS SETUP
+================================================================ */
+const canvas   = document.getElementById('render-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.setClearColor(0x000000, 0);
+renderer.shadowMap.enabled = false;
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 200);
+camera.position.set(0, 0, 6);
+camera.lookAt(0, 0, 0);
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ================================================================
+   TEXTURE LOADER (with fallback)
+================================================================ */
+const loader = new THREE.TextureLoader();
+loader.crossOrigin = 'anonymous';
+
+const T3 = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/textures/planets/';
+
+function loadTex(url) {
+  return new Promise(resolve => loader.load(url, resolve, undefined, () => resolve(null)));
+}
+
+/* ================================================================
+   SHADER CHUNKS
+================================================================ */
+const HOLO_VERT = /* glsl */`
+  varying vec2 vUv;
+  varying vec3 vNorm;
+  varying vec3 vViewDir;
+  void main() {
+    vUv = uv;
+    vNorm = normalize(normalMatrix * normal);
+    vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+    vViewDir = normalize(-mvPos.xyz);
+    gl_Position = projectionMatrix * mvPos;
+  }
+`;
+const HOLO_FRAG = /* glsl */`
+  uniform float time;
+  varying vec2 vUv;
+  varying vec3 vNorm;
+  varying vec3 vViewDir;
+  void main() {
+    float scan  = sin(vUv.y * 90.0 - time * 3.5) * .5 + .5;
+    scan = smoothstep(.44, .56, scan) * .13;
+    float beam  = smoothstep(.96, 1.0, sin(vUv.y * 3.14159 - time * 1.8)) * .35;
+    float rim   = pow(1.0 - max(dot(vNorm, vViewDir), 0.0), 2.8) * .45;
+    float alpha = scan + beam + rim;
+    gl_FragColor = vec4(0.0, 0.65, 1.0, alpha);
+  }
+`;
+const ATM_VERT = /* glsl */`
+  varying float intensity;
+  void main() {
+    vec3 n = normalize(normalMatrix * normal);
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vec3 vd = normalize(-mv.xyz);
+    intensity = pow(1.0 - abs(dot(n, vd)), 3.2);
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+const ATM_FRAG = /* glsl */`
+  uniform vec3 glowColor;
+  varying float intensity;
+  void main() {
+    gl_FragColor = vec4(glowColor * intensity, intensity * .9);
+  }
+`;
+const RIM_VERT = /* glsl */`
+  varying float rim;
+  void main() {
+    vec3 n = normalize(normalMatrix * normal);
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vec3 vd = normalize(-mv.xyz);
+    rim = pow(1.0 - abs(dot(n, vd)), 4.0);
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+const RIM_FRAG = /* glsl */`
+  varying float rim;
+  void main() {
+    gl_FragColor = vec4(0.0, 0.6, 1.0, rim * .5);
+  }
+`;
+
+/* ================================================================
+   OBJECT FACTORY
+================================================================ */
+async function buildEarth(textures) {
+  const g = new THREE.Group();
+  const { earth, clouds, normal } = textures;
+
+  // Base sphere
+  const mat = new THREE.MeshPhongMaterial({
+    map: earth,
+    normalMap: normal,
+    specular: new THREE.Color(0x334455),
+    shininess: 30,
+  });
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 64), mat);
+  g.add(mesh);
+
+  // Clouds
+  if (clouds) {
+    const cm = new THREE.Mesh(
+      new THREE.SphereGeometry(1.012, 64, 64),
+      new THREE.MeshPhongMaterial({ map: clouds, transparent: true, opacity: .45, depthWrite: false })
+    );
+    cm.userData.cloud = true;
+    g.add(cm);
+  }
+
+  return g;
+}
+
+async function buildMars(textures) {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshPhongMaterial({
+    map: textures.mars,
+    specular: new THREE.Color(0x220000),
+    shininess: 10,
+    color: textures.mars ? 0xffffff : 0xcc4422,
+  });
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(1, 64, 64), mat));
+  return g;
+}
+
+async function buildMoon(textures) {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshPhongMaterial({
+    map: textures.moon,
+    specular: new THREE.Color(0x111111),
+    shininess: 5,
+    color: textures.moon ? 0xffffff : 0xaaaaaa,
+  });
+  g.add(new THREE.Mesh(new THREE.SphereGeometry(1, 64, 64), mat));
+  return g;
+}
+
+async function buildCrystal() {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshPhongMaterial({
+    color: 0x0088ff,
+    emissive: 0x001133,
+    transparent: true, opacity: .7,
+    shininess: 120,
+    specular: 0x00ffff,
+    wireframe: false,
+  });
+  // Icosahedron for crystal look
+  g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(1, 2), mat));
+  // Wireframe overlay
+  const wmat = new THREE.MeshBasicMaterial({ color: 0x00aaff, wireframe: true, transparent: true, opacity: .3 });
+  g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(1.01, 2), wmat));
+  return g;
+}
+
+/* ================================================================
+   HOLOGRAPHIC WRAPPER — adds glow rings, scan effect, atmosphere
+================================================================ */
+function addHoloEffects(group, glowColor = new THREE.Color(0x0033aa)) {
+  const addBlend = { blending: THREE.AdditiveBlending, depthWrite: false, transparent: true };
+
+  // Holographic scan overlay
+  const holoMat = new THREE.ShaderMaterial({
+    uniforms: { time: { value: 0 } },
+    vertexShader: HOLO_VERT,
+    fragmentShader: HOLO_FRAG,
+    ...addBlend, side: THREE.FrontSide,
+  });
+  group.add(new THREE.Mesh(new THREE.SphereGeometry(1.006, 64, 64), holoMat));
+
+  // Atmosphere glow
+  const atmMat = new THREE.ShaderMaterial({
+    uniforms: { glowColor: { value: glowColor } },
+    vertexShader: ATM_VERT, fragmentShader: ATM_FRAG,
+    ...addBlend, side: THREE.FrontSide,
+  });
+  group.add(new THREE.Mesh(new THREE.SphereGeometry(1.09, 64, 64), atmMat));
+
+  // Outer rim
+  const rimMat = new THREE.ShaderMaterial({
+    vertexShader: RIM_VERT, fragmentShader: RIM_FRAG,
+    ...addBlend, side: THREE.BackSide,
+  });
+  group.add(new THREE.Mesh(new THREE.SphereGeometry(1.18, 64, 64), rimMat));
+
+  // Orbital rings
+  function ring(ir, or_, col, op, rx, rz) {
+    const m = new THREE.Mesh(
+      new THREE.RingGeometry(ir, or_, 128),
+      new THREE.MeshBasicMaterial({ color: col, ...addBlend, opacity: op, side: THREE.DoubleSide })
+    );
+    m.rotation.x = rx ?? 0;
+    m.rotation.z = rz ?? 0;
+    return m;
+  }
+  const r1 = ring(1.18, 1.20, 0x00aaff, .75, 0);
+  const r2 = ring(1.28, 1.285, 0x0066ff, .55, Math.PI / 5, 0);
+  const r3 = ring(1.38, 1.385, 0x003388, .40, Math.PI / 2.8, Math.PI / 7);
+  group.add(r1, r2, r3);
+
+  // Scan ring (latitudinal sweep)
+  const scanRingMat = new THREE.MeshBasicMaterial({
+    color: 0x00ffff, ...addBlend, opacity: .85, side: THREE.DoubleSide
+  });
+  const scanRing = new THREE.Mesh(new THREE.RingGeometry(1.0, 1.006, 128), scanRingMat);
+  scanRing.rotation.x = Math.PI / 2;
+  group.add(scanRing);
+
+  // Base pedestal glow
+  const baseMat = new THREE.MeshBasicMaterial({
+    color: 0x0044ff, ...addBlend, opacity: .12, side: THREE.DoubleSide
+  });
+  const base = new THREE.Mesh(new THREE.RingGeometry(.4, 1.6, 64), baseMat);
+  base.rotation.x = -Math.PI / 2;
+  base.position.y = -1.25;
+  group.add(base);
+
+  // Particle cloud
+  const N = 250;
+  const pos = new Float32Array(N * 3);
+  const speeds = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const phi = Math.random() * Math.PI * 2;
+    const th  = Math.random() * Math.PI;
+    const r   = 1.45 + Math.random() * .7;
+    pos[i*3]   = r * Math.sin(th) * Math.cos(phi);
+    pos[i*3+1] = r * Math.cos(th);
+    pos[i*3+2] = r * Math.sin(th) * Math.sin(phi);
+    speeds[i]  = .0008 + Math.random() * .003;
+  }
+  const ptGeo = new THREE.BufferGeometry();
+  ptGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const pts = new THREE.Points(ptGeo, new THREE.PointsMaterial({
+    color: 0x00aaff, size: .022, ...addBlend, opacity: .55,
+  }));
+  group.add(pts);
+
+  return { holoMat, scanRing, scanRingMat, r1, r2, r3, baseMat, ptGeo, speeds, N };
+}
+
+/* ================================================================
+   OBJECTS CATALOG
+================================================================ */
+progress(10, 'LOADING EARTH TEXTURE…');
+const earthTex  = await loadTex(T3 + 'earth_atmos_2048.jpg');
+progress(25, 'LOADING CLOUD LAYER…');
+const cloudsTex = await loadTex(T3 + 'earth_clouds_1024.png');
+progress(38, 'LOADING NORMAL MAP…');
+const normalTex = await loadTex(T3 + 'earth_normal_2048.jpg');
+progress(50, 'LOADING MARS…');
+const marsTex   = await loadTex(T3 + 'mars_1k_color.jpg');
+progress(62, 'LOADING MOON…');
+const moonTex   = await loadTex(T3 + 'moon_1024.jpg');
+
+progress(72, 'CONSTRUCTING OBJECTS…');
+
+const earthBase   = await buildEarth({ earth: earthTex, clouds: cloudsTex, normal: normalTex });
+const marsBase    = await buildMars({ mars: marsTex });
+const moonBase    = await buildMoon({ moon: moonTex });
+const crystalBase = await buildCrystal();
+
+const OBJECTS = [
+  { name: 'EARTH',   key: '1', group: earthBase,   glow: new THREE.Color(0x0033aa), rotSpd: .0018 },
+  { name: 'MARS',    key: '2', group: marsBase,    glow: new THREE.Color(0x551100), rotSpd: .0022 },
+  { name: 'MOON',    key: '3', group: moonBase,    glow: new THREE.Color(0x334455), rotSpd: .0008 },
+  { name: 'CRYSTAL', key: '4', group: crystalBase, glow: new THREE.Color(0x003388), rotSpd: .004  },
+];
+
+// Wrap each in a hologram group
+const holoData = [];
+const hologramGroups = [];
+
+for (const obj of OBJECTS) {
+  const wrapper = new THREE.Group();
+  wrapper.add(obj.group);
+  const fx = addHoloEffects(wrapper, obj.glow);
+  holoData.push(fx);
+  hologramGroups.push(wrapper);
+  scene.add(wrapper);
+  wrapper.visible = false;
+}
+
+let activeIdx = 0;
+hologramGroups[0].visible = true;
+
+function switchObject(idx) {
+  hologramGroups[activeIdx].visible = false;
+  activeIdx = idx;
+  hologramGroups[activeIdx].visible = true;
+  document.getElementById('objname').textContent = 'OBJECT: ' + OBJECTS[activeIdx].name;
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key >= '1' && e.key <= '4') switchObject(parseInt(e.key) - 1);
+});
+
+/* ================================================================
+   LIGHTING
+================================================================ */
+progress(80, 'SETTING UP LIGHTING…');
+const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+sun.position.set(5, 3, 5);
+scene.add(sun);
+scene.add(new THREE.AmbientLight(0x112244, 1.0));
+const blueLight = new THREE.PointLight(0x0033ff, .6, 12);
+blueLight.position.set(-4, 1, 3);
+scene.add(blueLight);
+
+/* ================================================================
+   WEBCAM
+================================================================ */
+progress(88, 'STARTING WEBCAM…');
+const video = document.getElementById('webcam');
+let camOk = false;
+
+try {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    video: { width: 1280, height: 720, facingMode: 'user' },
+    audio: false,
+  });
+  video.srcObject = stream;
+  await new Promise(r => video.addEventListener('loadeddata', r, { once: true }));
+  camOk = true;
+} catch {
+  document.getElementById('nocam').style.display = 'flex';
+}
+
+/* ================================================================
+   MEDIAPIPE HAND TRACKING
+================================================================ */
+progress(93, 'LOADING HAND TRACKING…');
+let landmarker = null;
+
+try {
+  const mpv = await import(
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs'
+  );
+  const vision = await mpv.FilesetResolver.forVisionTasks(
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
+  );
+  landmarker = await mpv.HandLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath:
+        'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+      delegate: 'GPU',
+    },
+    runningMode: 'VIDEO',
+    numHands: 2,
+  });
+} catch (e) {
+  console.warn('Hand tracking unavailable:', e);
+}
+
+/* ================================================================
+   HAND COORDINATE HELPERS
+================================================================ */
+// Returns { x, y, palmH } in MediaPipe normalised space (0-1)
+function palmNorm(lm) {
+  const pts = [0, 5, 9, 13, 17];
+  let sx = 0, sy = 0;
+  pts.forEach(i => { sx += lm[i].x; sy += lm[i].y; });
+  sx /= pts.length; sy /= pts.length;
+  const palmH = Math.sqrt((lm[0].x - lm[9].x) ** 2 + (lm[0].y - lm[9].y) ** 2);
+  return { x: sx, y: sy, palmH };
+}
+
+// Converts a normalised (0-1) landmark to Three.js world XY at z=0
+function normToWorld(nx, ny, palmH = 0) {
+  const ndcX =  (1 - nx) * 2 - 1;   // mirror X for CSS scaleX(-1)
+  const ndcY = -(ny * 2 - 1);
+  const fov   = camera.fov * Math.PI / 180;
+  const half  = Math.tan(fov / 2);
+  const asp   = innerWidth / innerHeight;
+  const depth = camera.position.z;
+  const wx = ndcX * half * asp * depth;
+  const wy = ndcY * half * depth;
+  const lift = palmH * half * depth * 3.5 + 0.25;
+  return new THREE.Vector3(wx, wy + lift, 0);
+}
+
+// Converts a single landmark {x,y} to world XY (no lift, used for fingertip lines)
+function lmToWorld(lx, ly) {
+  const ndcX =  (1 - lx) * 2 - 1;
+  const ndcY = -(ly * 2 - 1);
+  const fov   = camera.fov * Math.PI / 180;
+  const half  = Math.tan(fov / 2);
+  const asp   = innerWidth / innerHeight;
+  const depth = camera.position.z;
+  return new THREE.Vector3(ndcX * half * asp * depth, ndcY * half * depth, 0);
+}
+
+/* ================================================================
+   HUD REFS
+================================================================ */
+const hudFps    = document.getElementById('fps');
+const hudHand   = document.getElementById('hstatus');
+const hudPalm   = document.getElementById('palmxy');
+const hudTrack  = document.getElementById('trackst');
+const hudScale  = document.getElementById('objscale');
+const hudClock  = document.getElementById('clock');
+
+let fpsCnt = 0, fpsT = performance.now();
+
+/* ================================================================
+   ANIMATION LOOP
+================================================================ */
+progress(100, 'SYSTEMS ONLINE');
+await new Promise(r => setTimeout(r, 700));
+hideLoader();
+
+const clock = new THREE.Clock();
+let lastVidTime = -1;
+let handGone    = 0;
+let handSeen    = false;   // true only in 2-hand grab mode
+
+// Zoom / grab state
+let grabbing      = false;
+let grabDist      = null;
+let grabStartScale = 1.0;
+let curScale      = 1.0;
+let targetScale   = 1.0;
+
+const targetPos = new THREE.Vector3();
+const curPos    = new THREE.Vector3();
+
+/* ── Fingertip beam lines ───────────────────────────────────────── */
+// 4 fingertips per hand (index=8, middle=12, ring=16, pinky=20)
+const FINGER_TIPS = [8, 12, 16, 20];
+const LINE_COLOR  = new THREE.Color(0x00ccff);
+
+// Pre-create line segments (2 hands × 4 fingers = 8 lines)
+const beamLines = [];
+for (let i = 0; i < 8; i++) {
+  const geo = new THREE.BufferGeometry();
+  // 2 vertices: fingertip → globe surface point
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+  const mat = new THREE.LineBasicMaterial({
+    color: LINE_COLOR,
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const line = new THREE.Line(geo, mat);
+  scene.add(line);
+  beamLines.push(line);
+}
+
+// Random fixed angles on the globe surface for each beam target
+const beamTargetAngles = Array.from({ length: 8 }, () => ({
+  phi: Math.random() * Math.PI * 2,
+  theta: Math.random() * Math.PI,
+}));
+
+let beamOpacity = 0; // smoothly fade in/out
+
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+
+  /* ── Hand detection ── */
+  if (landmarker && video.readyState >= 2 && video.currentTime !== lastVidTime) {
+    lastVidTime = video.currentTime;
+    const res   = landmarker.detectForVideo(video, performance.now());
+    const hands = res.landmarks ?? [];
+
+    if (hands.length >= 2) {
+      /* ── TWO HANDS: grab + zoom ── */
+      handSeen = true;
+      handGone = 0;
+
+      const p0 = palmNorm(hands[0]);
+      const p1 = palmNorm(hands[1]);
+
+      // Hologram sits at midpoint between the two palms
+      const mx = (p0.x + p1.x) / 2;
+      const my = (p0.y + p1.y) / 2;
+      targetPos.copy(normToWorld(mx, my, (p0.palmH + p1.palmH) / 2));
+
+      // Hand spread distance drives the scale
+      const dist = Math.sqrt((p0.x - p1.x) ** 2 + (p0.y - p1.y) ** 2);
+      if (!grabbing) {
+        grabbing       = true;
+        grabDist       = dist;
+        grabStartScale = curScale;
+      }
+      targetScale = THREE.MathUtils.clamp(grabStartScale * (dist / grabDist), 0.2, 5.0);
+
+      hudHand.textContent  = 'HANDS: GRABBING';
+      hudTrack.textContent = 'ZOOM: ' + targetScale.toFixed(2) + '×';
+      hudPalm.textContent  = 'SPREAD: ' + ((dist / grabDist) * 100).toFixed(0) + '%';
+
+      // ── Fingertip beam lines ──
+      beamOpacity = Math.min(beamOpacity + 0.08, 1.0);
+      const globePos  = curPos;               // hologram world position
+      const globeR    = curScale;             // radius in world units
+
+      [hands[0], hands[1]].forEach((lm, hi) => {
+        FINGER_TIPS.forEach((tipIdx, fi) => {
+          const lineIdx = hi * 4 + fi;
+          const tip     = lm[tipIdx];
+          const tipW    = lmToWorld(tip.x, tip.y);
+
+          // Target: fixed point on the globe surface (world space)
+          const ang  = beamTargetAngles[lineIdx];
+          const surf = new THREE.Vector3(
+            globePos.x + globeR * Math.sin(ang.theta) * Math.cos(ang.phi),
+            globePos.y + globeR * Math.cos(ang.theta),
+            globePos.z + globeR * Math.sin(ang.theta) * Math.sin(ang.phi)
+          );
+
+          const pa = beamLines[lineIdx].geometry.attributes.position.array;
+          pa[0] = tipW.x;  pa[1] = tipW.y;  pa[2] = tipW.z;
+          pa[3] = surf.x;  pa[4] = surf.y;  pa[5] = surf.z;
+          beamLines[lineIdx].geometry.attributes.position.needsUpdate = true;
+          beamLines[lineIdx].material.opacity = beamOpacity * 0.75;
+        });
+      });
+
+    } else {
+      /* ── LESS THAN 2 HANDS: release grab ── */
+      if (grabbing) { grabbing = false; grabDist = null; }
+
+      // Fade out beam lines
+      beamOpacity = Math.max(beamOpacity - 0.06, 0);
+      beamLines.forEach(l => { l.material.opacity = beamOpacity * 0.75; });
+
+      handGone++;
+      if (handGone > 20) handSeen = false;
+
+      if (hands.length === 1) {
+        hudHand.textContent  = 'HAND: 1 DETECTED';
+        hudTrack.textContent = 'SHOW BOTH HANDS';
+        hudPalm.textContent  = 'GRAB: READY';
+      } else if (handGone > 20) {
+        hudHand.textContent  = 'HAND: SCANNING';
+        hudTrack.textContent = 'TRACKING: IDLE';
+        hudPalm.textContent  = 'PALM: ---';
+      }
+    }
+  }
+
+  /* ── Smooth hologram position ── */
+  const hg = hologramGroups[activeIdx];
+
+  if (handSeen) {
+    curPos.lerp(targetPos, 0.09);
+  } else {
+    // Gentle float in centre
+    targetPos.set(0, Math.sin(t * .7) * .08, 0);
+    curPos.lerp(targetPos, 0.025);
+  }
+  hg.position.copy(curPos);
+
+  // Smooth scale
+  curScale += (targetScale - curScale) * 0.1;
+  hg.scale.setScalar(curScale);
+
+  /* ── Per-object rotation ── */
+  const obj = OBJECTS[activeIdx];
+  const baseMesh = obj.group.children[0];
+  if (baseMesh) baseMesh.rotation.y += obj.rotSpd;
+  obj.group.children.forEach(c => {
+    if (c.userData.cloud) c.rotation.y += obj.rotSpd * 1.25;
+  });
+
+  /* ── Holographic FX ── */
+  const fx = holoData[activeIdx];
+
+  // Scan line sweep
+  const sy = Math.sin(t * 1.3) * .93;
+  fx.scanRing.position.y = sy;
+  fx.scanRingMat.opacity = .4 + Math.abs(Math.sin(t * 1.3)) * .55;
+
+  // Orbital rings independent spin
+  fx.r1.rotation.y  = t * .55;
+  fx.r2.rotation.y  = t * .32;
+  fx.r2.rotation.z  = t * .18;
+  fx.r3.rotation.y  = -t * .42;
+  fx.r3.rotation.x  = Math.PI / 2.8 + Math.sin(t * .25) * .08;
+
+  // Base glow pulse
+  fx.baseMat.opacity = .08 + Math.sin(t * 2.1) * .04;
+
+  // Holographic shader time
+  fx.holoMat.uniforms.time.value = t;
+
+  // Particle orbit
+  const pa = fx.ptGeo.attributes.position.array;
+  for (let i = 0; i < fx.N; i++) {
+    const sp  = fx.speeds[i];
+    const phi = t * sp * 55 + i * .11;
+    const th  = t * sp * 33 + i * .31;
+    const r   = 1.55 + Math.sin(t * sp * 90 + i) * .1;
+    pa[i*3]   = r * Math.sin(th) * Math.cos(phi);
+    pa[i*3+1] = r * Math.cos(th);
+    pa[i*3+2] = r * Math.sin(th) * Math.sin(phi);
+  }
+  fx.ptGeo.attributes.position.needsUpdate = true;
+
+  /* ── HUD updates ── */
+  fpsCnt++;
+  const now = performance.now();
+  if (now - fpsT > 500) {
+    hudFps.textContent = 'FPS: ' + Math.round(fpsCnt * 1000 / (now - fpsT));
+    fpsCnt = 0; fpsT = now;
+  }
+  hudScale.textContent  = 'SCALE: ' + curScale.toFixed(2) + '×';
+  hudClock.textContent  = new Date().toLocaleTimeString();
+
+  renderer.render(scene, camera);
+}
+
+animate();
+</script>
+</body>
+</html>
